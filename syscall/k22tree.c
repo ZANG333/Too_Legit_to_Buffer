@@ -3,9 +3,36 @@
 #include <linux/uaccess.h>
 #include <linux/k22info.h>
 
+struct info_node{
+    struct list_head list;
+    struct task_struct *task;
+};
 
-static int dfs(struct k22info *kbuf, int max_size){
 
+static int dfs(struct k22info *kbuf, int max){
+    int count = 0;
+    int ret_val;
+    struct task_struct *task;
+
+    /*Initialize a list*/
+    LIST_HEAD(stack);
+    
+    /*Create the struct with the tasks*/
+    struct info_node *root = kmalloc(sizeof(struct info_node), GFP_KERNEL);
+    if(!root){
+        ret_val = -ENOMEM;
+        goto out;
+    }
+
+    /*Link the two linked lists*/
+    root->task = &init_task;
+    list_add(&root->list, &stack);
+
+
+    /*Then we start the DFS*/
+
+out:
+    return ret_val;
 }
 
 /*Syscall Implementation*/
