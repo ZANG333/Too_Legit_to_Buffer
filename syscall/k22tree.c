@@ -5,27 +5,35 @@
 
 
 static int dfs(struct k22info *kbuf, int max_size){
-    // Placeholder for DFS implementation
-    // This function should populate kbuf with process information
-    // and return the number of processes filled in.
-    return 0; // Replace with actual number of processes found
+
 }
 
+/*Syscall Implementation*/
 static int do_k22tree(struct k22info *buf,int *ne){
     
     struct k22info *kbuf;
     int size;
     int ret_val;
+    int number_processes;
 
     if(!buf || !ne) {
         ret_val =  -EINVAL;  // Invalid argument
         goto out;
     }
     
+    /*Copy size from user space*/
     if(copy_from_user(&size, ne, sizeof(int))){
         ret_val =  -EFAULT;
         goto out;
     }
+
+    /*Make sure that the number of entries is valid*/
+    if(size < 1){
+        ret_val = -EINVAL;
+        goto out;
+    }
+
+    /*Validate user buffer with access_ok function*/
 
     kbuf = kmalloc(size * sizeof(struct k22info), GFP_KERNEL);
     if (!kbuf) {   
@@ -35,15 +43,18 @@ static int do_k22tree(struct k22info *buf,int *ne){
     //lock
 
     //DFS
-    int number_processes = dfs(kbuf,size);
+    number_processes = dfs(kbuf,size);
 
     //unlock
-    if(size < number_processes){
-        //we should only fill the buf up to size
+
+    /* Copy results to user space */
+    if (copy_to_user(buf, kbuf, ret_val * sizeof(struct k22info))) {
+        ret_val = -EFAULT;
         goto out;
     }
 
-    //Copy to user space
+
+    ret_val = number_processes;
 
 out:
     if(kbuf)

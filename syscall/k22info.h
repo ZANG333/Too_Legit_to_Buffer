@@ -1,3 +1,6 @@
+#ifndef _UAPI_LINUX_K22INFO_H
+#define _UAPI_LINUX_K22INFO_H
+
 #include <linux/types.h>
 
 struct k22info {
@@ -10,3 +13,5 @@ struct k22info {
     unsigned long nivcsw;           /* number of involuntary context switches */
     unsigned long start_time;       /* monotonic start time in nanoseconds */
 };
+
+#endif
