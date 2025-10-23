@@ -1,6 +1,7 @@
 #include <linux/k22info.h>
+#include <linux/syscalls.h>
+#include <linux/kernel.h>
 #include <linux/signal.h>
-#include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/slab.h>
 #include <linux/errno.h>
@@ -22,11 +23,11 @@ static int do_k22tree(struct k22info *buf, int *ne)
 	struct list_head stack_head;
 
 
-	copy_from_user(&size, ne, sizeof(size));
+	if(copy_from_user(&size, ne, sizeof(size)))return -1;
 
 	kbuf = kmalloc(sizeof(struct k22info)*size, GFP_KERNEL);
 
-	stack_head = INIT_LIST_HEAD(&stack_head);
+	INIT_LIST_HEAD(&stack_head);
 
 	new = kmalloc(sizeof(struct stack_node), GFP_KERNEL);
 	INIT_LIST_HEAD(&new->list);
@@ -41,7 +42,6 @@ static int do_k22tree(struct k22info *buf, int *ne)
 		list_del(top);
 		node = list_entry(top, struct stack_node, list);
 
-		// TBD we need to fill the k22info struct for it's node and add it to the buffer
 
 		struct task_struct *cur;
 		list_for_each_entry_reverse(cur, &node->task->children, children){
@@ -59,10 +59,10 @@ static int do_k22tree(struct k22info *buf, int *ne)
 
 		tmp_task = node->task;
 
-		tmp_child = list_first_entry(tmp_task->children, struct task_struct, children);
+		tmp_child = list_first_entry(&tmp_task->children, struct task_struct, children);
 		kbuf[count].first_child_pid = tmp_child->pid;
 
-		tmp_child = list_last_entry(tmp_task->sibling, struct task_struct, children);
+		tmp_child = list_last_entry(&tmp_task->sibling, struct task_struct, children);
 		kbuf[count].next_sibling_pid = tmp_child->pid;
 
 		strcpy(kbuf[count].comm, tmp_task->comm);
@@ -80,7 +80,7 @@ static int do_k22tree(struct k22info *buf, int *ne)
 
 	ret_code = count;
 
-	copy_to_user(buf, kbuf, count*sizeof(struct k22info));
+	if(copy_to_user(buf, kbuf, count*sizeof(struct k22info)))return -1;
 
 
 
