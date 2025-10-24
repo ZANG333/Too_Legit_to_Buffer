@@ -6,6 +6,10 @@
 #include <linux/sched/signal.h>
 #include <linux/k22info.h>
 
+//FULL COMMENTS AND DOCUMENTATION PENDING 
+//ΘΑ ΤΟ ΚΑΝΩ ΕΓΩ ΟΤΑΝ ΓΥΡΙΣΩ - Χρηστος 
+
+
 struct info_node{
     struct list_head list;
     struct task_struct *task;
@@ -16,17 +20,26 @@ static pid_t find_first_child_pid(struct task_struct *task){
     
     struct task_struct *child;
     list_for_each_entry(child, &task->children, sibling) {
+        //Security Checks
+        if (!task || list_empty(&task->children)) return -1;
+
         if (thread_group_leader(child))
             return task_pid_nr(child);
     }
-    read_lock(&tasklist_lock);
    return -1; //no children
 }
 
 /* Helper function to find the oldest sibling*/
 static pid_t find_next_sibling_pid(struct task_struct *task){
     struct task_struct *sibling;
+    struct task_struct *parent;
+    //Security Checks
+    if(!task || !task->real_parent) return -1;
+    parent = task->real_parent;
+
     list_for_each_entry_reverse(sibling, &task->sibling, sibling) {
+        if (sibling == task)
+            continue;   
         if (thread_group_leader(sibling))
             return task_pid_nr(sibling);
     }
@@ -67,6 +80,7 @@ static int dfs(struct k22info *kbuf, int max){
         //If the count > max we break the loop and start a loop with for_each_process to count all the processes
         if(count >= max){
             kfree(curr);
+            read_unlock(&tasklist_lock);
             goto counting;
         }
 
@@ -101,7 +115,7 @@ static int dfs(struct k22info *kbuf, int max){
                 if (!child_node) {
                     ret_val = -ENOMEM;
                     kfree(curr);
-                    read_unlock(&tasklist_lock);
+                    read_unlock(&tasklist_lock);//Forgot this unlock 
                     goto free_mem;
                 }
                 child_node->task = child;
