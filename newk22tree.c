@@ -48,7 +48,8 @@ static int do_k22tree(struct k22info *buf, int *ne)
 
 	INIT_LIST_HEAD(&new->list);
 	new->task = &init_task;
-
+	pr_info("k22tree DEBUG pid1 %d\n",new->task->pid);
+	pr_info("k22tree DEBUG init_taskpid %d\n",init_struct_pid);
 	pr_info("k22tree DEBUG: 3\n");
 	list_add(&new->list, &stack_head);
 
@@ -65,6 +66,7 @@ static int do_k22tree(struct k22info *buf, int *ne)
 		node = list_entry(top, struct stack_node, list);
 		pr_info("k22tree DEBUG address %p\n",node);
 
+		pr_info("k22tree DEBUG pid2 %d\n",node->task->pid);
 
 		pr_info("k22tree DEBUG: 5.1\n");
 		struct task_struct *cur;
@@ -72,7 +74,10 @@ static int do_k22tree(struct k22info *buf, int *ne)
 		int debug_test_count = 0;
 		list_for_each_entry_reverse(cur, &node->task->children, children){
 
-			
+			if (!thread_group_leader(cur)){
+				continue;
+			}
+						
 			new = kmalloc(sizeof(struct stack_node), GFP_KERNEL);
 			if (!new) {
 				return_code = -ENOMEM;
@@ -95,11 +100,12 @@ static int do_k22tree(struct k22info *buf, int *ne)
 
 		spin_lock(&lock);
 
+		pr_info("k22tree DEBUG pid3 %d\n",tmp_task->pid);
 		pr_info("k22tree DEBUG: 5.2\n");
 		tmp_child = list_first_entry(&tmp_task->children, struct task_struct, children);
 		kbuf[count].first_child_pid = tmp_child->pid;
 
-		tmp_child = list_last_entry(&tmp_task->sibling, struct task_struct, children);
+		tmp_child = list_last_entry(&tmp_task->sibling, struct task_struct, sibling);
 		kbuf[count].next_sibling_pid = tmp_child->pid;
 
 		pr_info("k22tree DEBUG: 5.3\n");
