@@ -5,6 +5,7 @@
 #include <linux/sched/task.h>
 #include <linux/sched/signal.h>
 #include <linux/k22info.h>
+#include <linux/minmax.h>
 
 //FULL COMMENTS AND DOCUMENTATION PENDING 
 //ΘΑ ΤΟ ΚΑΝΩ ΕΓΩ ΟΤΑΝ ΓΥΡΙΣΩ - Χρηστος 
@@ -85,6 +86,7 @@ static int dfs(struct k22info *kbuf, int max){
         }
 
         /* Check only processes */
+        // I think that the thread_group_leader check is useless-----------------------------------
         if(thread_group_leader(curr->task)){
             /*Fill the buffer*/
             kbuf[count].pid = task_pid_nr(curr->task);
@@ -107,6 +109,7 @@ static int dfs(struct k22info *kbuf, int max){
         }
         
         /* Push children to stack in reverse order*/
+        // I think the list_empty is pointless the list_for_each_entry_reverse does this check --------------------------
         if (!list_empty(&curr->task->children)) {
             struct task_struct *child;
             
@@ -115,6 +118,7 @@ static int dfs(struct k22info *kbuf, int max){
                 if (!child_node) {
                     ret_val = -ENOMEM;
                     kfree(curr);
+                    // we can move the read_unlock to the goto flag--------------------
                     read_unlock(&tasklist_lock);//Forgot this unlock 
                     goto free_mem;
                 }
@@ -192,6 +196,7 @@ static int do_k22tree(struct k22info *buf,int *ne){
         goto out;
     }
 
+    // why do we need this ? I find no use for it.--------------------------------
     memset(kbuf, 0, size * sizeof(struct k22info));
 
     //DFS
@@ -201,15 +206,16 @@ static int do_k22tree(struct k22info *buf,int *ne){
         goto out;
     }
 
+    int minimum = min(number_processes,size);
     /* Copy results to user space */
-    if (copy_to_user(buf, kbuf, min(number_processes,size)* sizeof(struct k22info))) {
+    if (copy_to_user(buf, kbuf, minimum* sizeof(struct k22info))) {
         ret_val = -EFAULT;
         printk(KERN_ERR "k22tree: copy_to_user failed for ne\n");
         goto out;
     }
 
     /*Update ne*/
-    kne = min(number_processes,size);
+    kne = minimum;
     if (copy_to_user(ne, &kne, sizeof(int))) {
         ret_val = -EFAULT;
         goto out;
