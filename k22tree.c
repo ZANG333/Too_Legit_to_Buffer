@@ -5,6 +5,9 @@
 #include <linux/sched/task.h>
 #include <linux/sched/signal.h>
 #include <linux/k22info.h>
+#include <linux/jiffies.h>
+#include <linux/sched/clock.h>
+
 
 struct info_node{
     struct list_head list;
@@ -103,28 +106,31 @@ static int dfs(struct k22info *kbuf, int max){
             kbuf[count].nivcsw = curr->task->nivcsw;
 
             /* Start time */
-            kbuf[count].start_time = curr->task->start_time;
+            unsigned long time = curr->task->start_time;
+            kbuf[count].start_time = jiffies_to_nsecs(time);
 
             count++;
+
+            pr_info("k22tree DEBUG this is a process\n");
+        } else{
+            pr_info("k22tree DEBUG this is a thread\n");
         }
         
         /* Push children to stack in reverse order*/
-        if (!list_empty(&curr->task->children)) {
-            struct task_struct *child;
-            
-            list_for_each_entry_reverse(child, &curr->task->children, sibling) {
-                struct info_node *child_node = kmalloc(sizeof(struct info_node), GFP_ATOMIC);
-                if (!child_node) {
-                    ret_val = -ENOMEM;
-                    kfree(curr);
-                    read_unlock(&tasklist_lock);
-                    goto free_mem;
-                }
-                child_node->task = child;
-                INIT_LIST_HEAD(&child_node->list);
-                list_add(&child_node->list, &stack);
+        struct task_struct *child;
+
+        list_for_each_entry_reverse(child, &curr->task->children, sibling) {
+            struct info_node *child_node = kmalloc(sizeof(struct info_node), GFP_ATOMIC);
+            if (!child_node) {
+                ret_val = -ENOMEM;
+                kfree(curr);
+                goto free_mem;
             }
+            child_node->task = child;
+            INIT_LIST_HEAD(&child_node->list);
+            list_add(&child_node->list, &stack);
         }
+
         kfree(curr);
     }
     read_unlock(&tasklist_lock);
@@ -141,6 +147,7 @@ counting:
     read_unlock(&tasklist_lock);
     ret_val = count;
 free_mem:
+    read_unlock(&tasklist_lock);
     /* Free remaining nodes in the stack */
     while (!list_empty(&stack)) {
         struct info_node *node = list_last_entry(&stack, struct info_node, list);
@@ -157,7 +164,7 @@ static int do_k22tree(struct k22info *buf,int *ne){
     struct k22info *kbuf;
     int size;
     int ret_val;
-    int kne;
+    int minimum;
     int number_processes;
 
 
@@ -196,7 +203,6 @@ static int do_k22tree(struct k22info *buf,int *ne){
         goto out;
     }
 
-    memset(kbuf, 0, size * sizeof(struct k22info));
 
     //DFS
     number_processes = dfs(kbuf,size);
@@ -204,15 +210,15 @@ static int do_k22tree(struct k22info *buf,int *ne){
         goto out;
     }
 
+    minimum = min(number_processes,size);
     /* Copy results to user space */
-    if (copy_to_user(buf, kbuf, min(number_processes,size)* sizeof(struct k22info))) {
+    if (copy_to_user(buf, kbuf, minimum* sizeof(struct k22info))) {
         ret_val = -EFAULT;
         goto out;
     }
 
     /*Update ne*/
-    kne = min(number_processes,size);
-    if (copy_to_user(ne, &kne, sizeof(int))) {
+    if (copy_to_user(ne, &minimum, sizeof(int))) {
         ret_val = -EFAULT;
         goto out;
     }
