@@ -57,7 +57,7 @@ static int dfs(struct k22info *kbuf, int max){
     LIST_HEAD(stack);
     
     /*Create the struct with the tasks*/
-    struct info_node *root = kmalloc(sizeof(struct info_node), GFP_ATOMIC);
+    struct info_node *root = kmalloc(sizeof(struct info_node), GFP_KERNEL);
     if(!root){
         ret_val = -ENOMEM;
         goto leave;
@@ -100,7 +100,7 @@ static int dfs(struct k22info *kbuf, int max){
         kbuf[count].nivcsw = curr->task->nivcsw;
 
          /* Start time */
-        kbuf[count].start_time = ktime_get_boottime_ns() - curr->task->start_boottime;
+        kbuf[count].start_time = curr->task->start_time;
 
         count++;
         
@@ -121,6 +121,10 @@ static int dfs(struct k22info *kbuf, int max){
             }
         }
         kfree(curr);
+    }
+    //Edge case: If we dont go inside the loop
+    if (list_empty(&stack)) {
+        kfree(root);
     }
     ret_val = count;
     goto leave;
