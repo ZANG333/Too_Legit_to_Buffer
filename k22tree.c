@@ -15,45 +15,43 @@ struct info_node{
 };
 
 /*Helper function to find first child*/
-static pid_t find_first_child_pid(struct task_struct *task){
-    
+static pid_t find_first_child_pid(struct task_struct *task)
+{
     struct task_struct *child;
-    if (!task || list_empty(&task->children))
-        return -1;
-    list_for_each_entry(child, &task->children, sibling) {
-        if (thread_group_leader(child))
-            return task_pid_nr(child);
+    struct task_struct *parent;
+
+    parent = task->real_parent;
+
+    list_for_each_entry_reverse(child, &parent->children, children) {
+        if (child == task)
+            continue;
+        return task_pid_nr(child);
     }
 
    return -1; //no children
 }
 
 /* Helper function to find the oldest sibling*/
-static pid_t find_next_sibling_pid(struct task_struct *task){
+static pid_t find_next_sibling_pid(struct task_struct *task)
+{
     struct task_struct *sibling;
     struct task_struct *parent;
 
-    if (!task || !task->real_parent)
-        return -1;
     parent = task->real_parent;
 
-    if (list_empty(&parent->children))
-        return -1;
-
-    list_for_each_entry_reverse(sibling, &parent->children, sibling) {
+    list_for_each_entry(sibling, &parent->children, children) {
         if (sibling == task)
             continue;
-        if (thread_group_leader(sibling))
-            return task_pid_nr(sibling);
+        return task_pid_nr(sibling);
     }
     return -1;
 }
 
 
-static int dfs(struct k22info *kbuf, int max){
+static int dfs(struct k22info *kbuf, int max)
+{
     int count = 0;
     int ret_val = 0;
-    struct task_struct *task;
     struct info_node *curr;
 
     /*Initialize a list*/
@@ -61,7 +59,7 @@ static int dfs(struct k22info *kbuf, int max){
     
     /*Create the struct with the tasks*/
     struct info_node *root = kmalloc(sizeof(struct info_node), GFP_ATOMIC);
-    if(!root){
+    if (!root) {
         ret_val = -ENOMEM;
         goto leave;
     }
@@ -74,7 +72,7 @@ static int dfs(struct k22info *kbuf, int max){
     read_lock(&tasklist_lock);
 
     /*Then we start the DFS*/
-    while(!list_empty(&stack)){
+    while (!list_empty(&stack)) {
         
         /*Pop from stack*/
         curr = list_last_entry(&stack, struct info_node, list);
@@ -90,32 +88,25 @@ static int dfs(struct k22info *kbuf, int max){
         }
 
         /* Check only processes */
-        if(thread_group_leader(curr->task)){
-            /*Fill the buffer*/
-            kbuf[count].pid = task_pid_nr(curr->task);
-            kbuf[count].parent_pid = task_ppid_nr(curr->task);
-            get_task_comm(kbuf[count].comm, curr->task);
+        /*Fill the buffer*/
+        kbuf[count].pid = task_pid_nr(curr->task);
+        kbuf[count].parent_pid = task_ppid_nr(curr->task);
+        get_task_comm(kbuf[count].comm, curr->task);
 
-            /* Youngest Child*/
-            kbuf[count].first_child_pid = find_first_child_pid(curr->task);
-            /* Oldest sibling*/
-            kbuf[count].next_sibling_pid = find_next_sibling_pid(curr->task);
+        /* Youngest Child*/
+        kbuf[count].first_child_pid = find_first_child_pid(curr->task);
+        /* Oldest sibling*/
+        kbuf[count].next_sibling_pid = find_next_sibling_pid(curr->task);
 
-            /* Context switches */
-            kbuf[count].nvcsw = curr->task->nvcsw;
-            kbuf[count].nivcsw = curr->task->nivcsw;
+        /* Context switches */
+        kbuf[count].nvcsw = curr->task->nvcsw;
+        kbuf[count].nivcsw = curr->task->nivcsw;
 
-            /* Start time */
-            unsigned long time = curr->task->start_time;
-            kbuf[count].start_time = jiffies_to_nsecs(time);
+        /* Start time */
+        kbuf[count].start_time = curr->task->start_time;
 
-            count++;
+        count++;
 
-            pr_info("k22tree DEBUG this is a process\n");
-        } else{
-            pr_info("k22tree DEBUG this is a thread\n");
-        }
-        
         /* Push children to stack in reverse order*/
         struct task_struct *child;
 
