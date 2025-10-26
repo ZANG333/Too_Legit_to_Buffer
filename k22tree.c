@@ -15,23 +15,37 @@ struct info_node{
 static pid_t find_first_child_pid(struct task_struct *task){
     
     struct task_struct *child;
+    if (!task || list_empty(&task->children))
+        return -1;
     list_for_each_entry(child, &task->children, sibling) {
         if (thread_group_leader(child))
             return task_pid_nr(child);
     }
-    read_lock(&tasklist_lock);
+
    return -1; //no children
 }
 
 /* Helper function to find the oldest sibling*/
 static pid_t find_next_sibling_pid(struct task_struct *task){
     struct task_struct *sibling;
-    list_for_each_entry_reverse(sibling, &task->sibling, sibling) {
+    struct task_struct *parent;
+
+    if (!task || !task->real_parent)
+        return -1;
+    parent = task->real_parent;
+
+    if (list_empty(&parent->children))
+        return -1;
+
+    list_for_each_entry_reverse(sibling, &parent->children, sibling) {
+        if (sibling == task)
+            continue;
         if (thread_group_leader(sibling))
             return task_pid_nr(sibling);
     }
-   return -1; //no children
+    return -1;
 }
+
 
 static int dfs(struct k22info *kbuf, int max){
     int count = 0;
@@ -43,7 +57,7 @@ static int dfs(struct k22info *kbuf, int max){
     LIST_HEAD(stack);
     
     /*Create the struct with the tasks*/
-    struct info_node *root = kmalloc(sizeof(struct info_node), GFP_KERNEL);
+    struct info_node *root = kmalloc(sizeof(struct info_node), GFP_ATOMIC);
     if(!root){
         ret_val = -ENOMEM;
         goto leave;
@@ -58,6 +72,7 @@ static int dfs(struct k22info *kbuf, int max){
 
     /*Then we start the DFS*/
     while(!list_empty(&stack)){
+        
         /*Pop from stack*/
         curr = list_last_entry(&stack, struct info_node, list);
         /*Delete that entry from the list*/
@@ -67,6 +82,7 @@ static int dfs(struct k22info *kbuf, int max){
         //If the count > max we break the loop and start a loop with for_each_process to count all the processes
         if(count >= max){
             kfree(curr);
+            read_unlock(&tasklist_lock);
             goto counting;
         }
 
@@ -118,9 +134,11 @@ static int dfs(struct k22info *kbuf, int max){
 counting:
     struct task_struct *t;
     count = 0;
+    read_lock(&tasklist_lock);
     for_each_process(t){
         count++;
     }
+    read_unlock(&tasklist_lock);
     ret_val = count;
 free_mem:
     /* Free remaining nodes in the stack */
@@ -142,39 +160,39 @@ static int do_k22tree(struct k22info *buf,int *ne){
     int kne;
     int number_processes;
 
-    printk(KERN_INFO "k22tree: Starting system call\n");
 
     if(!buf || !ne) {
         ret_val =  -EINVAL;  // Invalid argument
-        printk(KERN_ERR "k22tree: NULL pointer received\n");
         goto out;
     }
     
+    /* Validate ne*/
+    if(!access_ok(ne, sizeof(int))) {
+        ret_val = -EFAULT;
+        goto out;
+    }
+
     /*Copy size from user space*/
     if(copy_from_user(&size, ne, sizeof(int))){
         ret_val =  -EFAULT;
-        printk(KERN_ERR "k22tree: copy_from_user failed for ne\n");
         goto out;
     }
 
     /*Make sure that the number of entries is valid*/
     if(size < 1){
         ret_val = -EINVAL;
-        printk(KERN_ERR "k22tree: Invalid size %d\n", size);
         goto out;
     }
 
     /* Validate user buffer */
     if(!access_ok(buf, sizeof(struct k22info) * size)) {
         ret_val = -EFAULT;
-        printk(KERN_ERR "k22tree: access_ok failed for buffer\n");
         goto out;
     }
 
     kbuf = kmalloc(size * sizeof(struct k22info), GFP_KERNEL);
     if (!kbuf) {   
         ret_val =  -ENOMEM; // Memory allocation failed
-        printk(KERN_ERR "k22tree: kmalloc failed\n");
         goto out;
     }
 
@@ -183,14 +201,12 @@ static int do_k22tree(struct k22info *buf,int *ne){
     //DFS
     number_processes = dfs(kbuf,size);
     if(number_processes < 0){
-        printk(KERN_ERR "k22tree: DFS failed with error %d\n", number_processes);
         goto out;
     }
 
     /* Copy results to user space */
     if (copy_to_user(buf, kbuf, min(number_processes,size)* sizeof(struct k22info))) {
         ret_val = -EFAULT;
-        printk(KERN_ERR "k22tree: copy_to_user failed for ne\n");
         goto out;
     }
 
@@ -201,7 +217,6 @@ static int do_k22tree(struct k22info *buf,int *ne){
         goto out;
     }
 
-    printk(KERN_INFO "k22tree: Success, processed %d processes\n", number_processes);
     ret_val = number_processes;
 
 out:
