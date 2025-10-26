@@ -14,15 +14,12 @@ struct info_node{
     struct task_struct *task;
 };
 
-/*Helper function to find first child*/
+/*Helper function to find youngest child*/
 static pid_t find_first_child_pid(struct task_struct *task)
 {
     struct task_struct *child;
-    struct task_struct *parent;
 
-    parent = task->real_parent;
-
-    list_for_each_entry_reverse(child, &parent->children, children) {
+    list_for_each_entry_reverse(child, &task->children, children) {
         if (child == task)
             continue;
         return task_pid_nr(child);
