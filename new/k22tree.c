@@ -1,5 +1,6 @@
 #include <linux/syscalls.h>
 #include <linux/slab.h>
+#include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/rculist.h>
 #include <linux/ktime.h>
@@ -23,27 +24,23 @@ static pid_t find_first_child_pid(struct task_struct *task){
    return 0; //no children
 }
 
-/* Helper function to find the oldest sibling*/
-static pid_t find_next_sibling_pid(struct task_struct *task){
-    struct task_struct *sibling_goal;
-    struct task_struct *parent ;
+/* Helper function to find the pid of the next sibling*/
+static pid_t find_next_sibling_pid(struct task_struct *task)
+{
+    struct task_struct *next;
     
-    /* Init task has no real parent*/
-    if(!task->real_parent){
+    if (!task->real_parent || list_empty(&task->real_parent->children))
         return 0;
-    }
 
-    parent = task->real_parent;
-
-    list_for_each_entry(sibling_goal, &parent->children, sibling) {
-        if(sibling_goal != task){
-            return task_pid_nr(sibling_goal);
-        }
-        else{
-            break;
-        }
-    }
-    return 0; //no older sibling
+    
+    /* Use list_is_last to check if this is the last sibling */
+    if (list_is_last(&task->sibling, &task->real_parent->children))
+        return 0;
+    
+    /* Get the next entry in the sibling list */
+    next = list_next_entry(task, sibling);
+    
+    return task_pid_nr(next);
 }
 
 
@@ -52,6 +49,8 @@ static int dfs(struct k22info *kbuf, int max){
     int ret_val = 0;
     struct task_struct *task;
     struct info_node *curr;
+    bool lock = false;
+
 
     /*Initialize a list*/
     LIST_HEAD(stack);
@@ -69,7 +68,7 @@ static int dfs(struct k22info *kbuf, int max){
     list_add(&root->list, &stack);
 
     read_lock(&tasklist_lock);
-
+    lock = true;
     /*Then we start the DFS*/
     while(!list_empty(&stack)){
         
@@ -105,27 +104,22 @@ static int dfs(struct k22info *kbuf, int max){
         count++;
         
         /* Push children to stack in reverse order*/
-        if (!list_empty(&curr->task->children)) {
-            struct task_struct *child;
+        struct task_struct *child;
             
-            list_for_each_entry_reverse(child, &curr->task->children, sibling) {
-                struct info_node *child_node = kmalloc(sizeof(struct info_node), GFP_ATOMIC);
-                if (!child_node) {
-                    ret_val = -ENOMEM;
-                    kfree(curr);
-                    goto free_mem;
-                }
-                child_node->task = child;
-                INIT_LIST_HEAD(&child_node->list);
-                list_add(&child_node->list, &stack);
+         list_for_each_entry_reverse(child, &curr->task->children, sibling) {
+            struct info_node *child_node = kmalloc(sizeof(struct info_node), GFP_ATOMIC);
+            if (!child_node) {
+                ret_val = -ENOMEM;
+                kfree(curr);
+                goto free_mem;
             }
+            child_node->task = child;
+            INIT_LIST_HEAD(&child_node->list);
+            list_add(&child_node->list, &stack);
         }
         kfree(curr);
     }
-    //Edge case: If we dont go inside the loop
-    if (list_empty(&stack)) {
-        kfree(root);
-    }
+   
     ret_val = count;
     goto leave;
 
@@ -144,7 +138,8 @@ free_mem:
         kfree(node);
     }
 leave:
-    read_unlock(&tasklist_lock);
+    if(lock)
+        read_unlock(&tasklist_lock);
     return ret_val;
 }
 
@@ -197,6 +192,7 @@ static int do_k22tree(struct k22info *buf,int *ne){
     //DFS
     number_processes = dfs(kbuf,size);
     if(number_processes < 0){
+        ret_val = number_processes;
         goto out;
     }
 
