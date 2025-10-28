@@ -14,7 +14,7 @@ int main(void){
         return -1;
     }
 
-    int ret = syscall(477, buf, &count);
+    int ret = syscall(467, buf, &count);
 
     printf("System call returned: %d\n", ret);
     printf("Count: %d\n", count);
