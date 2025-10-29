@@ -20,7 +20,7 @@ static pid_t find_first_child_pid(struct task_struct *task)
 {
 	struct task_struct *child;
 
-	list_for_each_entry_reverse(child, &task->children, sibling)
+	list_for_each_entry_rcu(child, &task->children, sibling)
 		return task_pid_nr(child);
 
 	return 0; /* No children */
@@ -61,7 +61,7 @@ static int dfs(struct k22info *kbuf, int max)
 	INIT_LIST_HEAD(&root->list);
 	list_add(&root->list, &stack);
 
-	read_lock(&tasklist_lock);
+	rcu_read_lock();
 	lock = true;
 
 	while (!list_empty(&stack)) {
@@ -132,7 +132,7 @@ free_mem:
 
 leave:
 	if (lock)
-		read_unlock(&tasklist_lock);
+		rcu_read_unlock();
 	return ret_val;
 }
 
