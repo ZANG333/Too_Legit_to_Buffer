@@ -15,12 +15,12 @@ struct info_node {
 	struct task_struct *task;
 };
 
-/* Helper function to find first (youngest) child */
+/* Helper function to find first (oldest) child */
 static pid_t find_first_child_pid(struct task_struct *task)
 {
 	struct task_struct *child;
 
-	list_for_each_entry_reverse(child, &task->children, sibling)
+	list_for_each_entry(child, &task->children, sibling)
 		return task_pid_nr(child);
 
 	return 0; /* No children */
@@ -41,7 +41,6 @@ static pid_t find_next_sibling_pid(struct task_struct *task)
 	return task_pid_nr(next);
 }
 
-/*Main Function the program utilizes to traverse the task list depth first*/
 static int dfs(struct k22info *kbuf, int max)
 {
 	int count = 0;
@@ -65,7 +64,7 @@ static int dfs(struct k22info *kbuf, int max)
 	lock = true;
 
 	while (!list_empty(&stack)) {
-		curr = list_last_entry(&stack, struct info_node, list);
+		curr = list_first_entry(&stack, struct info_node, list);
 		list_del(&curr->list);
 
 		if (count >= max) {
@@ -137,28 +136,34 @@ leave:
 }
 
 /**
- * k22tree() - System call that fetches information about running processes
- * @ buf: Pointer to user space buffer that will store info about the processes
- * @ ne: Pointer to user space int that determines how many entities the buf can hold
- * 
- * The system call fetches and exposes process-specific0 information to user space
- * about current running processes by accessing the init_task and then doing a
- * depth first search (DFS) with respect to parent-child and sibling hirerchical
- * process relationships. The exposed iformation is stored in an array with variables
- * of type struct k22info (read more on the linux/k22info.h) which store the following:
- * 1. Name of process executable, 2. Pid, 3. parent Pid, 4. Pid of youngest child,
- * 5. Pid of oldest sibling (next one), 6-7. Voluntary and Involuntary context switches
- * 8. CPU uptime
+ * do_k22tree() - System call that fetches information about running processes
+ * @buf: Pointer to user space buffer that will store info about the processes
+ * @ne: Pointer to user space int that determines how many entities the buf can hold
  *
- * Context: The system call utilizes locks to ensure that the process data that the 
- *          system call wants to access can not and will not be mutated. These locks
- *          are released when the DFS concludes.
- * Return: 
- * * ret_val -Total number of processes running. This must 
- *         not be confused with the ne argument which dictates how namy processes the
- *         user space buf can hold.
- * * EFAULT -If buf or ne are outside the accessible adress space
- * * EINVAL -IF buf or ne are NULL or the number of entities is less than 1   
+ * The system call fetches and exposes process-specific information to user space
+ * about currently running processes by performing a Depth First Search (DFS)
+ * with respect to parent-child and sibling hierarchical relationships.
+ *
+ * The retrieved info is stored in an array of struct k22info elements
+ * (see linux/k22info.h), containing:
+ * 1. Process name (comm)
+ * 2. PID
+ * 3. Parent PID
+ * 4. First child PID (oldest child)
+ * 5. Next sibling PID
+ * 6-7. Voluntary and involuntary context switches
+ * 8. CPU start time
+ *
+ * Context:
+ * A read lock is held to guarantee that the accessed task_struct data
+ * will not be mutated while DFS traversal is ongoing. It is released
+ * after the traversal finishes.
+ *
+ * Return:
+ * * ret_val - Total number of processes in the system.
+ * * -EFAULT - If buf or ne are located in inaccessible user address space.
+ * * -EINVAL - If buf or ne are NULL or *ne < 1.
+ * * -ENOMEM - If memory allocation fails.
  */
 static int do_k22tree(struct k22info *buf, int *ne)
 {
@@ -183,13 +188,11 @@ static int do_k22tree(struct k22info *buf, int *ne)
 		goto out;
 	}
 
-	kbuf = kmalloc_array(size, sizeof(struct k22info), GFP_KERNEL);
+	kbuf = kcalloc(size, sizeof(struct k22info), GFP_KERNEL);
 	if (!kbuf) {
 		ret_val = -ENOMEM;
 		goto out;
 	}
-
-	memset(kbuf, 0, size * sizeof(struct k22info));
 
 	number_processes = dfs(kbuf, size);
 	if (number_processes < 0) {
