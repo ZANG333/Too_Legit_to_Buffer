@@ -64,7 +64,7 @@ static int dfs(struct k22info *kbuf, int max)
 	lock = true;
 
 	while (!list_empty(&stack)) {
-		curr = list_first_entry(&stack, struct info_node, list);
+		curr = list_last_entry(&stack, struct info_node, list);
 		list_del(&curr->list);
 
 		if (count >= max) {
@@ -101,7 +101,7 @@ static int dfs(struct k22info *kbuf, int max)
 
 				child_node->task = child;
 				INIT_LIST_HEAD(&child_node->list);
-				list_add(&child_node->list, &stack);
+				list_add_tail(&child_node->list, &stack);
 			}
 		}
 
