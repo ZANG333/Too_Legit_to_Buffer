@@ -13,7 +13,7 @@
 /*
  * struct info_node - Helper struct used to implement stack for dfs
  * @ list: pointer to the next member of the stack
- * @ task: pointer to the task stored in current node 
+ * @ task: pointer to the task stored in current node
  */
 struct info_node {
 	struct list_head list;
@@ -23,8 +23,8 @@ struct info_node {
 /*
  * first_child_pid() - Helper Function that fetched pid of the first child
  * @ task: pointer to the task whose first child we need to get the pid of
- * 
- * Context: The function uses no locks and does not sleep 
+ *
+ * Context: The function uses no locks and does not sleep
  *
  * Return: The pid of the first child of the given task or 0 if there are
  *         no children
@@ -32,21 +32,21 @@ struct info_node {
 static pid_t find_first_child_pid(struct task_struct *task)
 {
 	struct task_struct *child;
-	list_for_each_entry(child, &task->children, sibling){
+
+	list_for_each_entry(child, &task->children, sibling)
 		return task_pid_nr(child);
-	}
 
 	return 0;
 }
 
 /*
  * find_next_sibling_pid() - Helper function to find the pid of the next sibling
- * @ task: Pointer to the task whose first sibling we want to get the pid of 
+ * @ task: Pointer to the task whose first sibling we want to get the pid of
  *
  * Context: The function uses no locks and does not sleep
- * 
- * Return: The pid of the next sibling of the given task  or 0 if there are 
- *         no siblings. 
+ *
+ * Return: The pid of the next sibling of the given task  or 0 if there are
+ *         no siblings.
  */
 static pid_t find_next_sibling_pid(struct task_struct *task)
 {
@@ -65,17 +65,17 @@ static pid_t find_next_sibling_pid(struct task_struct *task)
 
 /*
  * dfs() - Function that performs a dfs of the task list
- * @ kbuf: pointer to a kernel allocated buffer that will store the info 
+ * @ kbuf: pointer to a kernel allocated buffer that will store the info
  *				 from the nodes that we traverse
  * @ max: Maximum number of tasks that can fit into the kbuf
  *
- * This funtion uses a stack to perform a non recursive depth first search
+ * This function uses a stack to perform a non recursive depth first search
  * of the task list with respect to parent child and sibling relashionships.
  * The traversed task get some of the info saved in the kbuf in variables of
- * type k22info (see linux/k22info.h). if there are more tasks (processes) 
+ * type k22info (see linux/k22info.h). if there are more tasks (processes)
  * running than the kbuf can hold (max < num_processes) the function copies
- * as many as possible into the kbuf and just counts the rest 
- * 
+ * as many as possible into the kbuf and just counts the rest
+ *
  * Return:
  * * ret_val - Number of running processes (not necessarily as many as the kbuf has)
  * * -ENOMEM - Memory allocation has failed
@@ -85,16 +85,15 @@ static int dfs(struct k22info *kbuf, int max)
 	int count = 0;
 	int ret_val = 0;
 	struct info_node *curr;
-	struct info_node *root;
 	bool lock = false;
+	LIST_HEAD(stack);
 
-	root = kmalloc(sizeof(*root), GFP_KERNEL);
+	struct info_node *root = kmalloc(sizeof(*root), GFP_KERNEL);
+
 	if (!root) {
 		ret_val = -ENOMEM;
 		goto leave;
 	}
-
-	LIST_HEAD(stack);
 
 	root->task = &init_task;
 	INIT_LIST_HEAD(&root->list);
@@ -126,20 +125,23 @@ static int dfs(struct k22info *kbuf, int max)
 
 		count++;
 
-		struct task_struct *child;
-		list_for_each_entry_reverse(child, &curr->task->children, sibling) {
-			struct info_node *child_node;
+		{
+			struct task_struct *child;
 
-			child_node = kmalloc(sizeof(*child_node), GFP_ATOMIC);
-			if (!child_node) {
-				ret_val = -ENOMEM;
-				kfree(curr);
-				goto free_mem;
+			list_for_each_entry_reverse(child, &curr->task->children, sibling) {
+				struct info_node *child_node;
+
+				child_node = kmalloc(sizeof(*child_node), GFP_ATOMIC);
+				if (!child_node) {
+					ret_val = -ENOMEM;
+					kfree(curr);
+					goto free_mem;
+				}
+
+				child_node->task = child;
+				INIT_LIST_HEAD(&child_node->list);
+				list_add_tail(&child_node->list, &stack);
 			}
-
-			child_node->task = child;
-			INIT_LIST_HEAD(&child_node->list);
-			list_add_tail(&child_node->list, &stack);
 		}
 
 		kfree(curr);
@@ -149,14 +151,14 @@ static int dfs(struct k22info *kbuf, int max)
 	goto leave;
 
 counting:
+{
 	struct task_struct *t;
 
 	count = 0;
-	for_each_process(t){
+	for_each_process(t)
 		count++;
-	}
 	ret_val = count;
-
+}
 
 free_mem:
 	while (!list_empty(&stack)) {
