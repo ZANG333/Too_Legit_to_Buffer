@@ -10,17 +10,17 @@
 #include <linux/sched/signal.h>
 #include <linux/k22info.h>
 
-/**
+/*
  * struct info_node - Helper struct used to implement stack for dfs
  * @ list: pointer to the next member of the stack
  * @ task: pointer to the task stored in current node 
-*/
+ */
 struct info_node {
 	struct list_head list;
 	struct task_struct *task;
 };
 
-/**
+/*
  * first_child_pid() - Helper Function that fetched pid of the first child
  * @ task: pointer to the task whose first child we need to get the pid of
  * 
@@ -28,18 +28,18 @@ struct info_node {
  *
  * Return: The pid of the first child of the given task or 0 if there are
  *         no children
-*/
+ */
 static pid_t find_first_child_pid(struct task_struct *task)
 {
 	struct task_struct *child;
-
-	list_for_each_entry(child, &task->children, sibling)
+	list_for_each_entry(child, &task->children, sibling){
 		return task_pid_nr(child);
+	}
 
 	return 0;
 }
 
-/**
+/*
  * find_next_sibling_pid() - Helper function to find the pid of the next sibling
  * @ task: Pointer to the task whose first sibling we want to get the pid of 
  *
@@ -47,7 +47,7 @@ static pid_t find_first_child_pid(struct task_struct *task)
  * 
  * Return: The pid of the next sibling of the given task  or 0 if there are 
  *         no siblings. 
-*/
+ */
 static pid_t find_next_sibling_pid(struct task_struct *task)
 {
 	struct task_struct *next;
@@ -63,7 +63,7 @@ static pid_t find_next_sibling_pid(struct task_struct *task)
 }
 
 
-/**
+/*
  * dfs() - Function that performs a dfs of the task list
  * @ kbuf: pointer to a kernel allocated buffer that will store the info 
  *				 from the nodes that we traverse
@@ -85,15 +85,16 @@ static int dfs(struct k22info *kbuf, int max)
 	int count = 0;
 	int ret_val = 0;
 	struct info_node *curr;
+	struct info_node *root;
 	bool lock = false;
-	LIST_HEAD(stack);
 
-	struct info_node *root = kmalloc(sizeof(*root), GFP_KERNEL);
-
+	root = kmalloc(sizeof(*root), GFP_KERNEL);
 	if (!root) {
 		ret_val = -ENOMEM;
 		goto leave;
 	}
+
+	LIST_HEAD(stack);
 
 	root->task = &init_task;
 	INIT_LIST_HEAD(&root->list);
@@ -125,23 +126,20 @@ static int dfs(struct k22info *kbuf, int max)
 
 		count++;
 
-		{
-			struct task_struct *child;
+		struct task_struct *child;
+		list_for_each_entry_reverse(child, &curr->task->children, sibling) {
+			struct info_node *child_node;
 
-			list_for_each_entry_reverse(child, &curr->task->children, sibling) {
-				struct info_node *child_node;
-
-				child_node = kmalloc(sizeof(*child_node), GFP_ATOMIC);
-				if (!child_node) {
-					ret_val = -ENOMEM;
-					kfree(curr);
-					goto free_mem;
-				}
-
-				child_node->task = child;
-				INIT_LIST_HEAD(&child_node->list);
-				list_add_tail(&child_node->list, &stack);
+			child_node = kmalloc(sizeof(*child_node), GFP_ATOMIC);
+			if (!child_node) {
+				ret_val = -ENOMEM;
+				kfree(curr);
+				goto free_mem;
 			}
+
+			child_node->task = child;
+			INIT_LIST_HEAD(&child_node->list);
+			list_add_tail(&child_node->list, &stack);
 		}
 
 		kfree(curr);
@@ -151,14 +149,14 @@ static int dfs(struct k22info *kbuf, int max)
 	goto leave;
 
 counting:
-{
 	struct task_struct *t;
 
 	count = 0;
-	for_each_process(t)
+	for_each_process(t){
 		count++;
+	}
 	ret_val = count;
-}
+
 
 free_mem:
 	while (!list_empty(&stack)) {
@@ -174,7 +172,7 @@ leave:
 	return ret_val;
 }
 
-/**
+/*
  * do_k22tree() - System call that fetches information about running processes
  * @ buf: Pointer to user space buffer that will store info about the processes
  * @ ne: Pointer to user space int that determines how many entities the buf can hold
