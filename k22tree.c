@@ -103,7 +103,6 @@ static int dfs(struct k22info *kbuf, int max) {
         while (curr && !next) {
             //If not root, check for sibling
             if (curr != &init_task && curr->real_parent) {
-                // Έλεγχος για επόμενο sibling
                 if (!list_is_last(&curr->sibling, &curr->real_parent->children)) {
                     next = list_next_entry(curr, sibling);
                 }
