@@ -162,9 +162,9 @@ static int do_k22tree(struct k22info *buf, int *ne) {
   struct k22info *kbuf = NULL;
   struct task_struct *t;
   int size;
-  int counter = 0;
+  int processes_before = 0;
   int ret_val = 0;
-  int number_processes;
+  int processes_after;
   int kne;
 
    if (!buf || !ne) {
@@ -184,36 +184,35 @@ static int do_k22tree(struct k22info *buf, int *ne) {
 
   read_lock(&tasklist_lock);
     for_each_process(t) {
-      counter++;
+      processes_before++;
     }
   read_unlock(&tasklist_lock);
 
 
-  for(int i = 0;i<10 ; i++)
+  for(int attempts = 0;attempts<10 ; attempts++)
   {
-    kbuf = kcalloc(counter + SLACK, sizeof(struct k22info), GFP_KERNEL);
+    kbuf = kcalloc(processes_before + SLACK, sizeof(struct k22info), GFP_KERNEL);
 
     if (!kbuf) {
       ret_val = -ENOMEM;
       goto out;
     }
 
-    number_processes = dfs(kbuf,counter + SLACK);
-    if (number_processes < 0) {
-      ret_val = number_processes;
-     goto out;
-    }
+    processes_after = dfs(kbuf,processes_before + SLACK);
 
-
-    if(number_processes <=  counter + SLACK){
+    if(processes_after <=  processes_before + SLACK){
       break;
     }
     else{
-      kfree(kbuf);
-      counter *= 2; 
+      if(attempts == 9){
+        processes_after = processes_before + SLACK;
+        break;
+      }
+        kfree(kbuf);
+      processes_before += 50; 
     }
   }
-  kne = min(number_processes,size);
+  kne = min(processes_after,size);
 
   if (copy_to_user(buf, kbuf, kne * sizeof(struct k22info))) {
     ret_val = -EFAULT;
@@ -225,7 +224,7 @@ static int do_k22tree(struct k22info *buf, int *ne) {
     goto out;
   }
 
-    ret_val = number_processes;
+    ret_val = processes_after;
 
 out:
   if(kbuf){
