@@ -57,17 +57,19 @@ static pid_t find_next_sibling_pid(struct task_struct *task) {
  *				 from the nodes that we traverse
  * @ max: Maximum number of tasks that can fit into the kbuf
  *
- * This function uses a stack to perform a non recursive depth first search
- * of the task list with respect to parent child and sibling relashionships.
- * The traversed task get some of the info saved in the kbuf in variables of
- * type k22info (see linux/k22info.h). if there are more tasks (processes)
- * running than the kbuf can hold (max < num_processes) the function copies
- * as many as possible into the kbuf and just counts the rest
+ * This function performs a non recursive depth first search of the task 
+ * list using the pointers inside the task struct to traverse the list with
+ * respect to parent-child and sibling relashionships. That way we do not need
+ * to allocate new buffers for the traversal and storing of the tasks resulting
+ * in increased memory efficiency. It stores at most max entities into the kbuf
+ * buffer and counts all the processes running at the time.  
  *
+ * Context:
+ * A read lock is held to guarantee that the accessed task_struct data
+ * will not be mutated while DFS traversal is ongoing. It is released
+ * after the traversal finishes.
  * Return:
- * * ret_val - Number of running processes (not necessarily as many as the kbuf
- * has)
- * * -ENOMEM - Memory allocation has failed
+ * * ret_val - Number of running processes
  */
 static int dfs(struct k22info *kbuf, int max) {
     struct task_struct *curr = &init_task;
@@ -90,18 +92,14 @@ static int dfs(struct k22info *kbuf, int max) {
         }
         count_total++;
 
-        //First go to the first child if exists
         if (!list_empty(&curr->children)) {
             curr = list_first_entry(&curr->children, struct task_struct, sibling);
             continue;
         }
 
-        //If no children, look for next sibling
         struct task_struct *next = NULL;
         
-        //For loop to go up the tree until we find a sibling or reach the root
         while (curr && !next) {
-            //If not root, check for sibling
             if (curr != &init_task && curr->real_parent) {
                 if (!list_is_last(&curr->sibling, &curr->real_parent->children)) {
                     next = list_next_entry(curr, sibling);
@@ -112,7 +110,6 @@ static int dfs(struct k22info *kbuf, int max) {
                 break; 
             }
             
-
             if (curr == &init_task) {
                 curr = NULL; 
             } else {
@@ -136,9 +133,12 @@ static int dfs(struct k22info *kbuf, int max) {
  * The system call fetches and exposes process-specific information to user
  * space about currently running processes by performing a Depth First Search
  * (DFS) with respect to parent-child and sibling hierarchical relationships.
- *
- * The retrieved info is stored in an array of struct k22info elements
- * (see linux/k22info.h), containing:
+ * It also makes checks before returning to avoid underreporing which may result 
+ * in additional subsequent calls of the dfs() function. After the required info is
+ * stored the user receives the first ne number of entries (if ne < total_processes)
+ * or the total number of processes running (if ne > total_processes). The retrieved 
+ * info is stored in an array of struct k22info elements (see linux/k22info.h),
+ * containing:
  * 1. Process name (comm)
  * 2. PID
  * 3. Parent PID
@@ -148,10 +148,9 @@ static int dfs(struct k22info *kbuf, int max) {
  * 8. CPU start time
  *
  * Context:
- * A read lock is held to guarantee that the accessed task_struct data
- * will not be mutated while DFS traversal is ongoing. It is released
- * after the traversal finishes.
- *
+ * A read lock is used when calling for_each_process() to count the processes currently
+ * running to ensure no errorneous behaviour of this function. 
+ * 
  * Return:
  * * ret_val - Total number of processes in the system.
  * * -EFAULT - buf or ne are located in inaccessible user address space.
