@@ -201,13 +201,13 @@ static int do_k22tree(struct k22info *buf, int *ne)
 
 		processes_after = dfs(kbuf,processes_before + SLACK);
 
+		if (processes_after <= processes_before + SLACK || size < processes_after )
+			break;
+
 		if (attempts == MAX_ATTEMPTS - 1) {
 			processes_after = processes_before + SLACK;
 			break;
 		}
-
-		if (processes_after <= processes_before + SLACK || size < processes_after )
-			break;
 
 		kfree(kbuf);
 		processes_before += 50;
