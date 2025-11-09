@@ -202,6 +202,10 @@ static int dfs(struct k22info *kbuf, int max)
  * The system call fetches and exposes process-specific information to user
  * space about currently running processes by performing a Depth First Search
  * (DFS) with respect to parent-child and sibling hierarchical relationships.
+ * The system call also runs a loop that compares the ammount of entries stored in
+ * the kbuf to the total number of running processes to prevent underreporting. If 
+ * that would be the case the kbuf is freed and reallocated so that it can account 
+ * for the extra processes.
  *
  * The retrieved info is stored in an array of struct k22info elements
  * (see linux/k22info.h), containing:
