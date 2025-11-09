@@ -141,6 +141,56 @@ static void traverse_from_root(struct task_struct *start,
     }
 }
 
+static void detached_dfs(struct task_struct *start,
+                         unsigned long *visited,
+                         struct k22info *kbuf,
+                         int max,
+                         int *count_total,
+                         int *count_stored)
+{
+    struct task_struct *curr = start;
+
+    while (curr) {
+        pid_t pid = task_pid_nr(curr);
+
+        if (pid >= 0 && pid <= PID_MAX_LIMIT && !test_and_set_bit(pid, visited)) {
+            (*count_total)++;
+
+            if (*count_stored < max) {
+                store_buffer(curr, kbuf, *count_stored);
+                (*count_stored)++;
+            }
+
+            if (!list_empty(&curr->children)) {
+                curr = list_first_entry(&curr->children, struct task_struct, sibling);
+                continue;
+            }
+        }
+
+        struct task_struct *next = NULL;
+        while (curr && !next) {
+            /* siblings */
+            if (curr->real_parent &&
+                curr->real_parent == start &&
+                !list_is_last(&curr->sibling, &curr->real_parent->children)) {
+
+                next = list_next_entry(curr, sibling);
+                break;
+            }
+
+            /* ΔΕΝ ανεβαίνουμε παραπάνω από τη ρίζα */
+            if (curr == start)
+                curr = NULL;
+            else
+                curr = curr->real_parent;
+        }
+
+        curr = next;
+    }
+}
+
+
+
 /**
  * dfs() - Function that traverses the task tree and stored task info 
  * @ kbuf: Pointer to the kernel buffer where we want to store the info
@@ -179,13 +229,9 @@ static int dfs(struct k22info *kbuf, int max)
     for_each_process(t) {
         pid_t pid = task_pid_nr(t);
         if (pid > 0 && pid <= PID_MAX_LIMIT && !test_bit(pid, visited)) {
-            count_total++;
-            if (count_stored < max) {
-                store_buffer(t, kbuf, count_stored);
-                count_stored++;
+            detached_dfs(t, visited, kbuf, max, &count_total, &count_stored);
             }
         }
-    }
 
     read_unlock(&tasklist_lock);
     bitmap_free(visited);
