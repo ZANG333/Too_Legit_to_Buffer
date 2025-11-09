@@ -2,17 +2,16 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/syscall.h>
-#include <linux/k22info.h>  // το δικό σου header με struct k22info
+#include <linux/k22info.h> 
 
-#define SYS_K22TREE 477      // αντικατάστησε με τον αριθμό του δικού σου syscall
+#define SYS_K22TREE 467 
 
-// helper για να βρούμε τον γονέα στο stack
 static int find_parent(int *stack, int top, int parent_pid) {
     for (int i = top; i >= 0; i--) {
         if (stack[i] == parent_pid)
             return i;
     }
-    return -1; // δεν βρέθηκε
+    return -1;
 }
 
 int main() {
@@ -21,7 +20,6 @@ int main() {
     if (!buf) { perror("malloc"); return 1; }
 
     int ret;
-    // επαναλαμβανόμενες κλήσεις μέχρι να χωράει όλα τα στοιχεία
     while (1) {
         ret = syscall(SYS_K22TREE, buf, &buf_size);
         if (ret < 0) {
@@ -30,11 +28,15 @@ int main() {
             return 1;
         }
         if (ret <= buf_size)
-            break;      // χωράει όλα
+            break;     
         buf_size *= 2;
         buf = realloc(buf, buf_size * sizeof(struct k22info));
         if (!buf) { perror("realloc"); return 1; }
+        printf("- User-space buf. size: %d\n", buf_size);
+        printf("- syscall return val:   %d\n", ret);
     }
+
+    printf("--- OK ---\n\n");
 
     if (ret == 0) {
         printf("No processes returned.\n");
@@ -50,11 +52,11 @@ int main() {
     int top = 0;
     stack[0] = buf[0].pid;   // root
 
-    // εκτύπωση πρώτης γραμμής
-    printf("%s,%d,%d,%d,%d,%ld,%ld,%ld\n",
+    // εκτύπωση root χωρίς παύλες
+    printf("%s,%d,%d,%d,%d,%ld,%ld,%lld\n",
         buf[0].comm, buf[0].pid, buf[0].parent_pid,
         buf[0].first_child_pid, buf[0].next_sibling_pid,
-        buf[0].nvcsw, buf[0].nivcsw, buf[0].start_time);
+        buf[0].nvcsw, buf[0].nivcsw, buf[0].start_time / 10000000ULL);
 
     for (int i = 1; i < ret; i++) {
         int parent_idx = find_parent(stack, top, buf[i].parent_pid);
@@ -63,11 +65,11 @@ int main() {
         top = parent_idx + 1;
         stack[top] = buf[i].pid;
 
-        for (int j = 0; j <= top; j++) printf("-");
-        printf("%s,%d,%d,%d,%d,%ld,%ld,%ld\n",
+        for (int j = 0; j < top; j++) printf("-");
+        printf("%s,%d,%d,%d,%d,%ld,%ld,%lld\n",
             buf[i].comm, buf[i].pid, buf[i].parent_pid,
             buf[i].first_child_pid, buf[i].next_sibling_pid,
-            buf[i].nvcsw, buf[i].nivcsw, buf[i].start_time);
+            buf[i].nvcsw, buf[i].nivcsw, buf[i].start_time / 10000000ULL);
     }
 
     free(buf);
