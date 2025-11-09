@@ -75,7 +75,26 @@ static void store_buffer(struct task_struct *curr, struct k22info *kbuf, int ind
   kbuf[index].start_time = curr->start_time;
 }
 
-
+/**
+ * traverse_from_root() - Helper function that does a dfs traversal of a tree with 
+ *                        the given root
+ * @ start: Pointer to the task at the root of the tree
+ * @ visited: Pointer to bitmask that keeps track of visited tasks
+ * @ kbuf: Pointer to the kernel buffer where we want to store the info
+ * @ max: Max number of entries that the kbuf can hold 
+ * @ count_total: Total numbers of processes running
+ * @ count_stored: Total number of tasks stored in the kbuf buffer
+ *
+ * This function performs a non recursive depth first search of the task 
+ * list using the pointers inside the task struct to traverse the list with
+ * respect to parent-child and sibling relashionships. That way we do not need
+ * to allocate new buffers for the traversal and storing of the tasks resulting
+ * in increased memory efficiency. It stores at most max entities into the kbuf
+ * buffer and counts all the processes running at the time
+ *
+ * Context: The function uses no locks and does not sleep. However it is called by 
+ *          another function that already has used a tasklist lock.
+ */
 static void traverse_from_root(struct task_struct *start,
                                unsigned long *visited,
                                struct k22info *kbuf,
@@ -122,6 +141,27 @@ static void traverse_from_root(struct task_struct *start,
     }
 }
 
+/**
+ * dfs() - Function that traverses the task tree and stored task info 
+ * @ kbuf: Pointer to the kernel buffer where we want to store the info
+ * @ max:: Max number of entries that the kbuf can hold 
+ *
+ * This function acesses the task tree and calls other helper functions that
+ * perform a non recursive depth first search of the task list using the pointers
+ * inside the task struct to traverse the list with respect to parent-child and 
+ * sibling relashionships and store their info into the kbuf. After the traversal of 
+ * the task tree the function once again counts all the running processes since there 
+ * may be some processes that have been detached from the task tree. In case the function
+ * finds such tasks they are handled seperately and placed into the end of the kbuf.
+ *
+ * Context:
+ * A read lock is held to guarantee that the accessed task_struct data
+ * will not be mutated while DFS traversal is ongoing. It is released
+ * after the traversal finishes.
+ *
+ * Return: The total number of tasks currently running (taking into account the detached ones
+ *         if they exist)
+ */
 static int dfs(struct k22info *kbuf, int max)
 {
     unsigned long *visited = bitmap_zalloc(PID_MAX_LIMIT + 1, GFP_KERNEL);
