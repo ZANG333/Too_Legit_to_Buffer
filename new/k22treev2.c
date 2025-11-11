@@ -59,11 +59,9 @@ static pid_t find_next_sibling_pid(struct task_struct *task) {
  * @ max: Maximum number of tasks that can fit into the kbuf
  *
  * This function uses a stack to perform a non recursive depth first search
- * of the task list with respect to parent child and sibling relashionships.
- * The traversed task get some of the info saved in the kbuf in variables of
- * type k22info (see linux/k22info.h). if there are more tasks (processes)
- * running than the kbuf can hold (max < num_processes) the function copies
- * as many as possible into the kbuf and just counts the rest
+ * of all threads with respect to parent child and sibling relashionships.
+ * The traversed tasks that are thread group leaders (aka processes) get some
+ * of the info saved in the kbuf in variables of type k22info (see linux/k22info.h).
  *
  * Return:
  * * ret_val - Number of running processes (not necessarily as many as the kbuf
@@ -133,6 +131,10 @@ leave:
  * The system call fetches and exposes process-specific information to user
  * space about currently running processes by performing a Depth First Search
  * (DFS) with respect to parent-child and sibling hierarchical relationships.
+ * The system call also runs a loop that compares the ammount of entries stored in
+ * the kbuf to the total number of running processes to prevent underreporting. If
+ * that would be the case the kbuf is freed and reallocated so that it can account
+ * for the extra processes.
  *
  * The retrieved info is stored in an array of struct k22info elements
  * (see linux/k22info.h), containing:
@@ -150,7 +152,7 @@ leave:
  * after the traversal finishes.
  *
  * Return:
- * * ret_val - Total number of processes in the system.
+ * * ret_val - Total number of processes observed in the system.
  * * -EFAULT - buf or ne are located in inaccessible user address space.
  * * -EINVAL - buf or ne are NULL or *ne < 1.
  * * -ENOMEM - Memory allocation fails.
