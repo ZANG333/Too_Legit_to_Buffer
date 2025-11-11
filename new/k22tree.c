@@ -57,7 +57,7 @@ static pid_t find_next_sibling_pid(struct task_struct *task) {
 /*
  * dfs() - Function that performs a dfs of the task list
  * @ kbuf: pointer to a kernel allocated buffer that will store the info
- *				 from the nodes that we traverse
+ *		   from the nodes that we traverse
  * @ max: Maximum number of tasks that can fit into the kbuf
  * @ total_processes: Number of total processes observed before the traversal 
  *
@@ -68,7 +68,8 @@ static pid_t find_next_sibling_pid(struct task_struct *task) {
  *
  * Return:
  * * ret_val - Number of running processes (not necessarily as many as the kbuf
- * has)
+ * has) or total_processes+SLACK+1 which may mean that our stack has overflown and
+ * we need to reallocate the stack.
  * * -ENOMEM - Memory allocation has failed
  */
 static int dfs(struct k22info *kbuf, int max, int total_processes)
