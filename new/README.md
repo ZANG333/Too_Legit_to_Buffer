@@ -13,3 +13,7 @@ Judging by what makes a process to be involuntarily descheduled we can assume th
 ## Process uptime
 
 When calling the ``k22tree()`` system call we can also observe that some processes have similar extremely high running time especially when compared to some of the other processes.This time also aligns quite conveniently with the system uptime. We can safely assume that these processes belong to kernel-space programs which are vital for the OS that start automatically during booting of the system or right after the boot ends. Under closer observation we can also see that these processes also have small pid compared to others something that also confirms that they were created earlier than the other ones. 
+
+## Authors
+
+The contents of the .zip folder have been written and tested by the members of the Too Legit to Buffer (TLB) team for the assignment of the K22-Operating Systems course which consists of Spyros Maichosoglou (sdi2400114), Giannis Grigoratos (sdi2400034) and Christos Giannakis (sdi2400026).
