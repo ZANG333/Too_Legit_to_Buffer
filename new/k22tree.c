@@ -10,16 +10,9 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 
-/*
- * struct info_node - Helper struct used to implement stack for dfs
- * @ list: pointer to the next member of the stack
- * @ task: pointer to the task stored in current node
- */
-struct info_node {
-	struct list_head list;
-	struct task_struct *task;
-};
-
+#define MAX_ATTEMPTS 10
+#define SLACK 20
+#define REALLOCATE_SIZE 50
 /*
  * first_child_pid() - Helper Function that fetched pid of the first child
  * @ task: pointer to the task whose first child we need to get the pid of
@@ -29,15 +22,14 @@ struct info_node {
  * Return: The pid of the first child of the given task or 0 if there are
  *         no children
  */
-static pid_t find_first_child_pid(struct task_struct *task)
-{
+static pid_t find_first_child_pid(struct task_struct *task) {
 	struct task_struct *child;
 
-	list_for_each_entry(child, &task->children, sibling) {
-		return task_pid_nr(child);
-	}
+	if (list_empty(&task->children))
+		return 0;
 
-	return 0;
+	child = list_first_entry(&task->children, struct task_struct, sibling);
+	return task_pid_nr(child);
 }
 
 /*
@@ -49,8 +41,7 @@ static pid_t find_first_child_pid(struct task_struct *task)
  * Return: The pid of the next sibling of the given task  or 0 if there are
  *         no siblings.
  */
-static pid_t find_next_sibling_pid(struct task_struct *task)
-{
+static pid_t find_next_sibling_pid(struct task_struct *task) {
 	struct task_struct *next;
 
 	if (!task->real_parent || list_empty(&task->real_parent->children))
@@ -68,84 +59,70 @@ static pid_t find_next_sibling_pid(struct task_struct *task)
  * @ kbuf: pointer to a kernel allocated buffer that will store the info
  *				 from the nodes that we traverse
  * @ max: Maximum number of tasks that can fit into the kbuf
+ * @ total_processes: Number of total processes observed before the traversal 
  *
  * This function uses a stack to perform a non recursive depth first search
- * of the task list with respect to parent child and sibling relashionships.
- * The traversed task get some of the info saved in the kbuf in variables of
- * type k22info (see linux/k22info.h). if there are more tasks (processes)
- * running than the kbuf can hold (max < num_processes) the function copies
- * as many as possible into the kbuf and just counts the rest
+ * of all threads with respect to parent child and sibling relashionships.
+ * The traversed tasks that are thread group leaders (aka processes) get some
+ * of the info saved in the kbuf in variables of type k22info (see linux/k22info.h).
  *
  * Return:
  * * ret_val - Number of running processes (not necessarily as many as the kbuf
  * has)
  * * -ENOMEM - Memory allocation has failed
  */
-static int dfs(struct k22info *kbuf, int max)
+static int dfs(struct k22info *kbuf, int max, int total_processes)
 {
 	int count = 0;
 	int ret_val = 0;
-	struct info_node *curr;
-	struct info_node *root;
+	int top = -1;
+	struct task_struct *curr;
 
-	root = kmalloc(sizeof(*root), GFP_KERNEL);
-	if (!root) {
+	struct task_struct **stack = kcalloc(total_processes + SLACK, sizeof(struct task_struct *), GFP_KERNEL);
+	if (!stack) {
 		ret_val = -ENOMEM;
 		goto leave;
 	}
-
-	LIST_HEAD(stack);
-
-	root->task = &init_task;
-	INIT_LIST_HEAD(&root->list);
-	list_add(&root->list, &stack);
+	stack[++top] = &init_task;
 
 	read_lock(&tasklist_lock);
-	while (!list_empty(&stack) && count < max) {
+	while (top >= 0) {
 
-		curr = list_last_entry(&stack, struct info_node, list);
-		list_del(&curr->list);
+		curr = stack[top--];
 
-		kbuf[count].pid = task_pid_nr(curr->task);
-		kbuf[count].parent_pid = task_ppid_nr(curr->task);
-		get_task_comm(kbuf[count].comm, curr->task);
-		kbuf[count].first_child_pid = find_first_child_pid(curr->task);
-		kbuf[count].next_sibling_pid = find_next_sibling_pid(curr->task);
-		kbuf[count].nvcsw = curr->task->nvcsw;
-		kbuf[count].nivcsw = curr->task->nivcsw;
-		kbuf[count].start_time = curr->task->start_time;
-		count++;
-
-		struct task_struct *child;
-		list_for_each_entry_reverse(child, &curr->task->children, sibling) {
-			struct info_node *child_node;
-
-			child_node = kmalloc(sizeof(*child_node), GFP_ATOMIC);
-			if (!child_node) {
-				ret_val = -ENOMEM;
-				kfree(curr);
-				goto leave;
+		if  (thread_group_leader(curr)) {
+			if (count < max) {
+				kbuf[count].pid = task_pid_nr(curr);
+				kbuf[count].parent_pid = task_ppid_nr(curr);
+				get_task_comm(kbuf[count].comm, curr);
+				kbuf[count].first_child_pid = find_first_child_pid(curr);
+				kbuf[count].next_sibling_pid = find_next_sibling_pid(curr);
+				kbuf[count].nvcsw = curr->nvcsw;
+				kbuf[count].nivcsw = curr->nivcsw;
+				kbuf[count].start_time = curr->start_time;
 			}
-
-			child_node->task = child;
-			INIT_LIST_HEAD(&child_node->list);
-			list_add_tail(&child_node->list, &stack);
+			count++;
 		}
 
-		kfree(curr);
-	}
+		struct task_struct *child;
+		struct task_struct *tmp;
+		for_each_thread(curr, tmp){
+			list_for_each_entry_reverse(child, &tmp->children, sibling){
 
+				if (top + 1 >= total_processes){
+					ret_val = total_processes + SLACK + 1;
+					goto free_mem;
+				}
+				stack[++top] = child;
+			}
+		}
+	}
 	ret_val = count;
 
-leave:
+free_mem:
 	read_unlock(&tasklist_lock);
-
-	while (!list_empty(&stack)) {
-		struct info_node *node = list_last_entry(&stack, struct info_node, list);
-		list_del(&node->list);
-		kfree(node);
-	}
-
+	kfree(stack);	
+leave:
 	return ret_val;
 }
 
@@ -158,6 +135,10 @@ leave:
  * The system call fetches and exposes process-specific information to user
  * space about currently running processes by performing a Depth First Search
  * (DFS) with respect to parent-child and sibling hierarchical relationships.
+ * The system call also runs a loop that compares the ammount of entries stored in
+ * the kbuf to the total number of running processes to prevent underreporting. If
+ * that would be the case the kbuf is freed and reallocated so that it can account
+ * for the extra processes.
  *
  * The retrieved info is stored in an array of struct k22info elements
  * (see linux/k22info.h), containing:
@@ -175,7 +156,7 @@ leave:
  * after the traversal finishes.
  *
  * Return:
- * * ret_val - Total number of processes in the system.
+ * * ret_val - Total number of processes observed in the system.
  * * -EFAULT - buf or ne are located in inaccessible user address space.
  * * -EINVAL - buf or ne are NULL or *ne < 1.
  * * -ENOMEM - Memory allocation fails.
@@ -183,12 +164,12 @@ leave:
 static int do_k22tree(struct k22info *buf, int *ne)
 {
 	struct k22info *kbuf = NULL;
-	struct task_struct *tmp;
-	int size;
+	struct task_struct *tmp ;
+	int size = 0;
 	int ret_val = 0;
-	int processes_written;
-	int process_count;
-	int kbuf_size;
+	int processes_after = 0;
+	int process_before = 0;
+	int kbuf_size = 0;
 
 	if (!buf || !ne) {
 		ret_val = -EINVAL;
@@ -205,36 +186,51 @@ static int do_k22tree(struct k22info *buf, int *ne)
 		goto out;
 	}
 
-	read_lock(&tasklist_lock);
+	rcu_read_lock();
 	for_each_process(tmp) {
-		process_count++;
+		process_before++;
 	}
-	read_unlock(&tasklist_lock);
+	rcu_read_unlock();
 
-	kbuf_size = min(size, process_count + 20);
-	kbuf = kcalloc(kbuf_size, sizeof(struct k22info), GFP_KERNEL);
-	if (!kbuf) {
-		ret_val = -ENOMEM;
-		goto free_mem;
-	}
+	kbuf_size = min(size, process_before + SLACK);
+	for (int attempts = 0; attempts < MAX_ATTEMPTS; attempts++) {
 
-	processes_written = dfs(kbuf, kbuf_size);
-	if (processes_written < 0) {
-		ret_val = processes_written;
-		goto free_mem;
-	}
+		kbuf = kcalloc(kbuf_size, sizeof(struct k22info), GFP_KERNEL);
+		if (!kbuf) {
+			ret_val = -ENOMEM;
+			goto out;
+		}
 
-	if (copy_to_user(buf, kbuf, processes_written * sizeof(struct k22info))) {
+		processes_after = dfs(kbuf, kbuf_size, process_before);
+		if (processes_after < 0) {
+			ret_val = processes_after;
+			goto free_mem;
+		}
+
+		if (processes_after <= kbuf_size) {
+			break;
+		}
+      	if (attempts == MAX_ATTEMPTS - 1) {
+          	processes_after = kbuf_size;
+          	break;
+      	}
+      	process_before += processes_after + REALLOCATE_SIZE;
+      	kfree(kbuf);
+      	kbuf_size += REALLOCATE_SIZE;
+    }
+
+	size = min(size, processes_after);
+	if (copy_to_user(buf, kbuf, size * sizeof(struct k22info))) {
 		ret_val = -EFAULT;
 		goto free_mem;
 	}
 
-	if (copy_to_user(ne, &processes_written, sizeof(int))) {
+	if (copy_to_user(ne, &size, sizeof(int))) {
 		ret_val = -EFAULT;
 		goto free_mem;
 	}
 
-	ret_val = max(processes_written, process_count);
+	ret_val = processes_after;
 
 free_mem:
 	kfree(kbuf);
