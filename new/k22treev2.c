@@ -109,7 +109,7 @@ static int dfs(struct k22info *kbuf, int max, int total_processes)
 			list_for_each_entry_reverse(child, &tmp->children, sibling){
 
 				if (top + 1 >= total_processes){
-					goto leave;
+					goto free_mem;
 				}
 				stack[++top] = child;
 			}
@@ -117,10 +117,10 @@ static int dfs(struct k22info *kbuf, int max, int total_processes)
 	}
 	ret_val = count;
 
-leave:
+free_mem:
 	read_unlock(&tasklist_lock);
 	kfree(stack);	
-
+leave:
 	return ret_val;
 }
 
@@ -186,11 +186,9 @@ static int do_k22tree(struct k22info *buf, int *ne)
 	}
 	read_unlock(&tasklist_lock);
 
-	kbuf_size = process_count + 20;
+	kbuf_size = min(size, process_count + 20);
 	for (int i = 0; i < 10; i++) {
 
-
-		kbuf_size = min(size, kbuf_size);
 		kbuf = kcalloc(kbuf_size, sizeof(struct k22info), GFP_KERNEL);
 		if (!kbuf) {
 			ret_val = -ENOMEM;
@@ -203,8 +201,18 @@ static int do_k22tree(struct k22info *buf, int *ne)
 			goto free_mem;
 		}
 
-		if (processes_after <= kbuf_size)
+		if (processes_after <= kbuf_size) {
 			break;
+        }else {
+
+            if (i == 9) {
+                processes_after = kbuf_size;
+                break;
+            }
+            process_count = processes_after + 50;
+            kfree(kbuf);
+            kbuf_size += 50;
+        }
 
 	}
 
