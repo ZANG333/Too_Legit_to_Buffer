@@ -57,6 +57,7 @@ static pid_t find_next_sibling_pid(struct task_struct *task) {
  * @ kbuf: pointer to a kernel allocated buffer that will store the info
  *				 from the nodes that we traverse
  * @ max: Maximum number of tasks that can fit into the kbuf
+ * @ total_processes: Number of total processes observed before the traversal 
  *
  * This function uses a stack to perform a non recursive depth first search
  * of all threads with respect to parent child and sibling relashionships.
