@@ -1,7 +1,0 @@
-Parent PID: 7001
-Child2 PID: 7003, Parent PID: 7001
-Parent PID: 7001
-Child1 PID: 7002, Parent PID: 7001
-Parent PID: 7001
-Child3 PID: 7004, Parent PID: 7001
-Parent PID: 7001
