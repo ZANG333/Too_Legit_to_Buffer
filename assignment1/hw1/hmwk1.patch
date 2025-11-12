@@ -50,10 +50,10 @@ index 87866b037..d66149391 100644
  obj-$(CONFIG_MULTIUSER) += groups.o
 diff --git a/kernel/k22tree.c b/kernel/k22tree.c
 new file mode 100644
-index 000000000..d00ba6b79
+index 000000000..44a134ea2
 --- /dev/null
 +++ b/kernel/k22tree.c
-@@ -0,0 +1,248 @@
+@@ -0,0 +1,293 @@
 +// SPDX-License-Identifier: GPL-2.0
 +
 +#include <linux/k22info.h>
@@ -69,46 +69,91 @@ index 000000000..d00ba6b79
 +#define MAX_ATTEMPTS 10
 +#define SLACK 20
 +#define REALLOCATE_SIZE 50
++
 +/*
-+ * first_child_pid() - Helper Function that fetched pid of the first child
-+ * @ task: pointer to the task whose first child we need to get the pid of
++ * find_first_child_pid() - Finds the first (chronologically oldest) child of a parent task.
++ * @task: pointer to the parent task (task_struct)
 + *
-+ * Context: The function uses no locks and does not sleep
++ * Context: Does not use locks and does not sleep.
 + *
-+ * Return: The pid of the first child of the given task or 0 if there are
-+ *         no children
++ * Operation:
++ * 1. Iterates over all threads in the task's thread group.
++ * 2. For each thread, iterates over its children list.
++ * 3. Selects the child with the smallest start_time (i.e., the oldest child).
++ *
++ * Return:
++ * - PID of the oldest child.
++ * - 0 if no children exist.
++ *
++ * Note: The selection is based on start_time to ensure that pre-order DFS
++ *       traversal by creation time is correct.
 + */
 +static pid_t find_first_child_pid(struct task_struct *task)
 +{
++	struct task_struct *thread;
 +	struct task_struct *child;
++	struct task_struct *earliest = NULL;
++	bool has_child = false;
 +
-+	if (list_empty(&task->children))
++	for_each_thread(task, thread) {
++		list_for_each_entry(child, &thread->children, sibling) {
++			if (!has_child || child->start_time < earliest->start_time) {
++				earliest = child;
++				has_child = true;
++			}
++		}
++	}
++
++	if (!has_child)
 +		return 0;
 +
-+	child = list_first_entry(&task->children, struct task_struct, sibling);
-+	return task_pid_nr(child);
++	return task_pid_nr(earliest);
 +}
 +
 +/*
-+ * find_next_sibling_pid() - Helper function to find the pid of the next sibling
-+ * @ task: Pointer to the task whose first sibling we want to get the pid of
++ * find_next_sibling_pid() - Finds the next sibling task created immediately after the current task.
++ * @task: pointer to the task whose next sibling we want
 + *
-+ * Context: The function uses no locks and does not sleep
++ * Context: Does not use locks and does not sleep.
 + *
-+ * Return: The pid of the next sibling of the given task  or 0 if there are
-+ *         no siblings.
++ * Operation:
++ * 1. Retrieves the parent of the current task.
++ * 2. Iterates over all threads of the parent.
++ * 3. For each thread, iterates over its children list.
++ * 4. Selects the child whose start_time is greater than the current task's start_time
++ *    but smaller than any other candidate, ensuring the "next" sibling in chronological order.
++ *
++ * Return:
++ * - PID of the next sibling according to creation time.
++ * - 0 if there is no next sibling.
++ *
++ * Note: Using start_time ensures correct pre-order DFS traversal even among siblings.
 + */
 +static pid_t find_next_sibling_pid(struct task_struct *task)
 +{
-+	struct task_struct *next;
++	struct task_struct *thread;
++	struct task_struct *sibling;
++	struct task_struct *next = NULL;
++	struct task_struct *parent = task->real_parent;
 +
-+	if (!task->real_parent || list_empty(&task->real_parent->children))
++	if (!parent || task == &init_task)
 +		return 0;
 +
-+	if (list_is_last(&task->sibling, &task->real_parent->children))
++	for_each_thread(parent, thread) {
++		list_for_each_entry(sibling, &thread->children, sibling) {
++			if (sibling == task)
++				continue;
++
++			if (sibling->start_time >= task->start_time) {
++				if (!next || sibling->start_time <= next->start_time)
++					next = sibling;
++			}
++		}
++	}
++
++	if (!next)
 +		return 0;
 +
-+	next = list_next_entry(task, sibling);
 +	return task_pid_nr(next);
 +}
 +
