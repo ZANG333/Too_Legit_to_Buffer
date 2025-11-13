@@ -1,0 +1,13 @@
+#!/bin/bash
+
+pids_from_second=$(./test | awk -F',' '{print $2}')
+
+pids_from_first=$(ps -A | awk '{print $1}')
+
+for pid in $pids_from_first; do
+    if echo "$pids_from_second" | grep -qw "$pid"; then
+        echo "found: PID $pid"
+    else
+        echo "Not found: PID $pid"
+    fi
+done
